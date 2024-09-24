@@ -5,6 +5,9 @@ const crypto = require('crypto');
 const app = express();
 const port = process.env.PORT || 3000;
 
+const cors = require('cors');
+app.use(cors());
+
 // Middleware to parse JSON bodies
 app.use(express.json());
 
@@ -22,6 +25,7 @@ const transporter = nodemailer.createTransport({
 
 // Request OTP Route
 app.post('/sendOTP', (req, res) => {
+  console.log("Running Request OTP Route");
   const email = req.body.email;
   if (!email) {
     return res.status(400).send('Email is required');
@@ -51,6 +55,7 @@ app.post('/sendOTP', (req, res) => {
 
 // Verify OTP Route
 app.post('/verifyOTP', (req, res) => {
+  console.log("Running Verify OTP Route");
   const { email, otp } = req.body;
   if (!email || !otp) {
     return res.status(400).send('Email and OTP are required');
