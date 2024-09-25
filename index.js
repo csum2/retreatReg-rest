@@ -93,29 +93,51 @@ app.post('/sendOTP', async (req, res) => {
 
 // Verify OTP Route
 app.post('/verifyOTP', async (req, res) => {
-    console.log("Running Verify OTP Route");
     const { email, otp } = req.body;
+
     if (!email || !otp) {
-        return res.status(400).send('Email and OTP are required');
+        return res.status(400).json({ message: 'Email and OTP are required' });
     }
 
-    // Check if OTP matches
-    const storedOtp = otpStore[email];
-    if (storedOtp && storedOtp == otp) {
-        // Clear the OTP from the store after successful login
+    try {
+        // Verify OTP from memory or database (your logic)
+        const storedOtp = otpStore[email];
+        if (!storedOtp || storedOtp != otp) {
+            return res.status(400).json({ message: 'Invalid OTP' });
+        }
+
+        // OTP is valid, so delete it from the store
         delete otpStore[email];
 
         // Search for the user by email in the Google Sheet
-        const userData = await _findUserByEmail(email);
-        if (userData) {
-            console.log(`User data found: ${userData}`);
-            res.status(200).send(`Login successful. User data: ${userData}`);
-        } else {
-            console.log('No user data found.');
-            res.status(200).send('Login successful. No user data found.');
+        const userRow = await _findUserByEmail(email);
+
+        if (!userRow) {
+            console.log(`No user data found`);
+            return res.status(200).json({ message: 'Login successful. No user data found.' });
         }
-    } else {
-        res.status(400).send('Invalid OTP');
+
+        // Construct the userData object based on the row data (e.g., names from columns)
+        const userData = {
+            email: userRow[0],  // Assuming email is in the first column
+            names: [
+                userRow[1] || '', // Name 1 in second column
+                userRow[2] || '', // Name 2 in third column
+                userRow[3] || '', // Name 3 in fourth column
+                userRow[4] || '', // Name 4 in fifth column
+            ]
+        };
+
+        // Return the userData object along with the success message
+        res.status(200).json({
+            message: 'Login successful with user data found',
+            userData
+        });
+        const userDataJSON = JSON.stringify(userData);
+        console.log(`User data fetched: ${userDataJSON}`);
+    } catch (error) {
+        console.error('Error during OTP verification:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
     }
 });
 
