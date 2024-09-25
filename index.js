@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');
+const bodyParser = require('body-parser');
 const crypto = require('crypto');
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,7 +10,7 @@ const cors = require('cors');
 app.use(cors());
 
 // Middleware to parse JSON bodies
-app.use(express.json());
+app.use(bodyParser.json());
 
 // Simple in-memory storage for OTPs
 let otpStore = {};
@@ -37,7 +38,7 @@ app.post('/sendOTP', (req, res) => {
 
   // Send email with the OTP
   const mailOptions = {
-    from: process.env.GMAIL_USER,
+    from: 'Do not reply - Automatic email of Cornerstone Fellowship <cornerstone.backend@gmail.com>',
     to: email,
     subject: 'Your OTP Code',
     text: `Your OTP code is ${otp}.`,
