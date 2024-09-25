@@ -3,13 +3,18 @@ const express = require('express');
 const nodemailer = require('nodemailer');
 const bodyParser = require('body-parser');
 const crypto = require('crypto');
+const { GoogleAuth } = require('google-auth-library');
+const { google } = require('googleapis');
+const fs = require('fs');
+
 const app = express();
 const port = process.env.PORT || 3000;
+const serviceAccountKeyFile = "./config/service-account.json";
+const sheetId = process.env.GOOGLE_SHEET_ID;
+const sheetName = process.env.GOOGLE_SHEET_NAME;
 
 const cors = require('cors');
 app.use(cors());
-
-// Middleware to parse JSON bodies
 app.use(bodyParser.json());
 
 // Simple in-memory storage for OTPs
@@ -17,61 +22,104 @@ let otpStore = {};
 
 // Configure nodemailer with Gmail
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,  // Your Gmail account
-    pass: process.env.GMAIL_PASS,  // Your Gmail App password
-  },
+    service: 'gmail',
+    auth: {
+        user: process.env.GMAIL_USER,  // Your Gmail account
+        pass: process.env.GMAIL_PASS,  // Your Gmail App password
+    },
 });
 
-// Request OTP Route
-app.post('/sendOTP', (req, res) => {
-  console.log("Running Request OTP Route");
-  const email = req.body.email;
-  if (!email) {
-    return res.status(400).send('Email is required');
-  }
+// Function to auth the Google Sheet
+async function _getGoogleSheetClient() {
+    const auth = new google.auth.GoogleAuth({
+      keyFile: serviceAccountKeyFile,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+    const authClient = await auth.getClient();
+    return google.sheets({ version: 'v4', auth: authClient });
+}
 
-  // Generate a 6-digit OTP
-  const otp = crypto.randomInt(100000, 999999);
-  otpStore[email] = otp;  // Store the OTP in memory
+// Function to access Google Sheet and get rows
+async function _getSheetData() {
+    const googleSheetClient = await _getGoogleSheetClient();
+    const res = await googleSheetClient.spreadsheets.values.get({
+        spreadsheetId: sheetId,
+        range: sheetName,
+    });
+    return res.data.values;
+}
 
-  // Send email with the OTP
-  const mailOptions = {
-    from: 'Do not reply - Automatic email of Cornerstone Fellowship <cornerstone.backend@gmail.com>',
-    to: email,
-    subject: 'Your OTP Code',
-    text: `Your OTP code is ${otp}.`,
-  };
-
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      console.error(error);
-      return res.status(500).send('Failed to send OTP');
+// Function to search for email in Google Sheet
+async function _findUserByEmail(email) {
+    const rows = await _getSheetData();
+    const emailIndex = 0; // Assuming the email is in the first column
+    for (const row of rows) {
+        if (row[emailIndex] && row[emailIndex].toLowerCase() === email.toLowerCase()) {
+            return row; // Return the row if the email matches
+        }
     }
-    console.log(`OTP sent: ${otp}`);
-    res.status(200).send('OTP sent to your email');
-  });
+    return null; // Return null if no matching email found
+}
+
+// Request OTP Route
+app.post('/sendOTP', async (req, res) => {
+    console.log("Running Request OTP Route");
+    const email = req.body.email;
+    if (!email) {
+        return res.status(400).send('Email is required');
+    }
+
+    // Generate a 6-digit OTP
+    const otp = crypto.randomInt(100000, 999999);
+    otpStore[email] = otp;  // Store the OTP in memory
+
+    // Send email with the OTP
+    const mailOptions = {
+        from: 'Do not reply - Automatic email of Cornerstone Fellowship <cornerstone.backend@gmail.com>',
+        to: email,
+        subject: 'Your OTP Code',
+        text: `Your OTP code is ${otp}.`,
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`OTP sent: ${otp}`);
+        res.status(200).send('OTP sent to your email');
+    } catch (error) {
+        console.error(error);
+        return res.status(500).send('Failed to send OTP');
+    }
 });
 
 // Verify OTP Route
-app.post('/verifyOTP', (req, res) => {
-  console.log("Running Verify OTP Route");
-  const { email, otp } = req.body;
-  if (!email || !otp) {
-    return res.status(400).send('Email and OTP are required');
-  }
+app.post('/verifyOTP', async (req, res) => {
+    console.log("Running Verify OTP Route");
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+        return res.status(400).send('Email and OTP are required');
+    }
 
-  // Check if OTP matches
-  const storedOtp = otpStore[email];
-  if (storedOtp && storedOtp == otp) {
-    res.status(200).send('Login successful');
-  } else {
-    res.status(400).send('Invalid OTP');
-  }
+    // Check if OTP matches
+    const storedOtp = otpStore[email];
+    if (storedOtp && storedOtp == otp) {
+        // Clear the OTP from the store after successful login
+        delete otpStore[email];
+
+        // Search for the user by email in the Google Sheet
+        const userData = await _findUserByEmail(email);
+        if (userData) {
+            console.log(`User data found: ${userData}`);
+            res.status(200).send(`Login successful. User data: ${userData}`);
+        } else {
+            console.log('No user data found.');
+            res.status(200).send('Login successful. No user data found.');
+        }
+    } else {
+        res.status(400).send('Invalid OTP');
+    }
 });
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server is running on http://localhost:${port}`);
 });
