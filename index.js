@@ -8,6 +8,7 @@ const { google } = require('googleapis');
 const fs = require('fs');
 
 const app = express();
+const host = process.env.HOST || 'localhost'; // Default to 'localhost' if not set
 const port = process.env.PORT || 3000;
 const serviceAccountKeyFile = "./config/service-account.json";
 const sheetId = process.env.GOOGLE_SHEET_ID;
@@ -143,5 +144,5 @@ app.post('/verifyOTP', async (req, res) => {
 
 // Start the server
 app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
+    console.log(`Server is running on http://${host}:${port}`);
 });
