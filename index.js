@@ -10,9 +10,12 @@ const fs = require('fs');
 const app = express();
 const host = process.env.HOST || 'localhost'; // Default to 'localhost' if not set
 const port = process.env.PORT || 3000;
+// User render.com 's secret folder for the json file in production
+//const serviceAccountKeyFile = "/etc/secrets/service-account.json";
 const serviceAccountKeyFile = "./config/service-account.json";
 const sheetId = process.env.GOOGLE_SHEET_ID;
 const sheetName = process.env.GOOGLE_SHEET_NAME;
+const sheetSystem = process.env.GOOGLE_SHEET_SYSTEM;
 
 const cors = require('cors');
 app.use(cors());
@@ -41,18 +44,18 @@ async function _getGoogleSheetClient() {
 }
 
 // Function to access Google Sheet and get rows
-async function _getSheetData() {
+async function _getSheetData(tabToRead) {
     const googleSheetClient = await _getGoogleSheetClient();
     const res = await googleSheetClient.spreadsheets.values.get({
         spreadsheetId: sheetId,
-        range: sheetName,
+        range: tabToRead,
     });
     return res.data.values;
 }
 
 // Function to search for email in Google Sheet
 async function _findUserByEmail(email) {
-    const rows = await _getSheetData();
+    const rows = await _getSheetData(sheetName);
     const emailIndex = 0; // Assuming the email is in the first column
     for (const row of rows) {
         if (row[emailIndex] && row[emailIndex].toLowerCase() === email.toLowerCase()) {
@@ -60,6 +63,20 @@ async function _findUserByEmail(email) {
         }
     }
     return null; // Return null if no matching email found
+}
+
+// Function to search whether the system is open for registration
+async function _findSystemRegStatus() {
+    const rows = await _getSheetData(sheetSystem);
+    const controlIndex = 0; // Assuming the control keyword is in the first column
+    for (const row of rows) {
+        if (row[controlIndex] && row[controlIndex] === 'OpenForReg') {
+            return row[1]; // Return the status if keyword matches
+        } else {
+            return 'N'; // Assume system not open of keyword not found
+        }
+    }
+    return 'N'; // Assume system not open if sheet is empty
 }
 
 // Request OTP Route
@@ -112,20 +129,27 @@ app.post('/verifyOTP', async (req, res) => {
 
         // Search for the user by email in the Google Sheet
         const userRow = await _findUserByEmail(email);
+        const systemOpen = await _findSystemRegStatus();
 
+        console.log(`System Open status: ${systemOpen}`);
         if (!userRow) {
             console.log(`No user data found`);
-            return res.status(200).json({ message: 'Login successful. No user data found.' });
+            const userData = {
+                systemOpen: systemOpen
+            };
+            return res.status(404).json({ message: 'Login successful. No user data found.', userData });
         }
 
         // Construct the userData object based on the row data (e.g., names from columns)
         const userData = {
+            systemOpen: systemOpen,
             email: userRow[0],  // Assuming email is in the first column
+            paidFlag: userRow[1],  // Paid indicator in second column
             names: [
-                userRow[1] || '', // Name 1 in second column
-                userRow[2] || '', // Name 2 in third column
-                userRow[3] || '', // Name 3 in fourth column
-                userRow[4] || '', // Name 4 in fifth column
+                userRow[2] || '', // Name 1 in third column
+                userRow[3] || '', // Name 2 in fourth column
+                userRow[4] || '', // Name 3 in fifth column
+                userRow[5] || '', // Name 4 in sixth column
             ]
         };
 
