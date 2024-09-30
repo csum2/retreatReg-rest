@@ -79,6 +79,48 @@ async function _findSystemRegStatus() {
     return 'N'; // Assume system not open if sheet is empty
 }
 
+// Function to map a single row to a JSON structure
+function mapRowToJson(openFlag, row) {
+    return {
+        systemOpen: openFlag,
+        email: row[0],  // Assuming email is in the 1st column
+        paidFlag: row[1],  // Paid indicator in 2nd column
+        numOfFam: row[2],  // Paid indicator in 3rd column
+        names: [
+            row[3] || '', // Name 1 in 4th column
+            row[4] || '', // Name 2 in 5th column
+            row[5] || '', // Name 3 in 6th column
+            row[6] || '', // Name 4 in 7th column
+        ],
+        mobile: row[7], // in 8th column
+        tshirts: [
+            {   //T shirt 1
+                color: row[8], // in 9th column
+                size:  row[9], // in 10th column
+                qty:   row[10], // in 11th column
+            },
+            {   //T shirt 2
+                color: row[11], // in 12nd column
+                size:  row[12], // in 13rd column
+                qty:   row[13], // in 14th column
+            },
+            {   //T shirt 3
+                color: row[14], // in 15th column
+                size:  row[15], // in 16th column
+                qty:   row[16], // in 17th column
+            },
+            {   //T shirt 4
+                color: row[17], // in 18th column
+                size:  row[18], // in 19th column
+                qty:   row[19], // in 20th column
+            },
+        ],
+        totalFee: row[20], // in 21st column
+        regDate:  row[21], // in 22nd column
+        updDate:  row[22]  // in 23rd column
+    };
+}
+
 // Request OTP Route
 app.post('/sendOTP', async (req, res) => {
     console.log("Running Request OTP Route");
@@ -119,7 +161,15 @@ app.post('/verifyOTP', async (req, res) => {
 
     try {
         // Verify OTP from memory or database (your logic)
-        const storedOtp = otpStore[email];
+        //TODO unit test codes only to hard code a testing account
+        //const storedOtp = otpStore[email];
+        var storedOtp;
+        if (email === 'abc@bb.com') {
+            storedOtp = 999999;
+        } else {
+            storedOtp = otpStore[email];
+        }
+
         if (!storedOtp || storedOtp != otp) {
             return res.status(400).json({ message: 'Invalid OTP' });
         }
@@ -129,9 +179,11 @@ app.post('/verifyOTP', async (req, res) => {
 
         // Search for the user by email in the Google Sheet
         const userRow = await _findUserByEmail(email);
+        // See if the system is open for regristration
         const systemOpen = await _findSystemRegStatus();
-
         console.log(`System Open status: ${systemOpen}`);
+
+        // No user record found in the spreadsheet
         if (!userRow) {
             console.log(`No user data found`);
             const userData = {
@@ -141,17 +193,7 @@ app.post('/verifyOTP', async (req, res) => {
         }
 
         // Construct the userData object based on the row data (e.g., names from columns)
-        const userData = {
-            systemOpen: systemOpen,
-            email: userRow[0],  // Assuming email is in the first column
-            paidFlag: userRow[1],  // Paid indicator in second column
-            names: [
-                userRow[2] || '', // Name 1 in third column
-                userRow[3] || '', // Name 2 in fourth column
-                userRow[4] || '', // Name 3 in fifth column
-                userRow[5] || '', // Name 4 in sixth column
-            ]
-        };
+        const userData = mapRowToJson(systemOpen, userRow);
 
         // Return the userData object along with the success message
         res.status(200).json({
