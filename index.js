@@ -117,7 +117,7 @@ function mapRowToJson(openFlag, row) {
         ],
         totalFee: row[20], // in 21st column
         regDate:  row[21], // in 22nd column
-        updDate:  row[22]  // in 23rd column
+        updTimestamp:  row[22]  // in 23rd column
     };
 }
 
@@ -153,6 +153,7 @@ app.post('/sendOTP', async (req, res) => {
 
 // Verify OTP Route
 app.post('/verifyOTP', async (req, res) => {
+    console.log("Running verify OTP Route");
     const { email, otp } = req.body;
 
     if (!email || !otp) {
@@ -204,6 +205,96 @@ app.post('/verifyOTP', async (req, res) => {
         console.log(`User data fetched: ${userDataJSON}`);
     } catch (error) {
         console.error('Error during OTP verification:', error);
+        res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+// Function to save or update a user record
+app.post('/saveOrUpdate', async (req, res) => {
+    console.log("Running Save or Update Route");
+
+    const userData = req.body; // The JSON data from frontend
+    const email = userData.email;
+
+    if (!email) {
+        return res.status(400).json({ message: 'Email is required' });
+    }
+
+    try {
+        // Fetch all the existing rows in the sheet
+        const rows = await _getSheetData(sheetName);
+        const emailIndex = 0; // Assuming the email is in the first column
+
+        // Check if email already exists in the sheet
+        let rowIndex = -1;
+        let existingRegDate = null; // To hold the existing regDate
+        let existingPaidFlag = null; // To hold the existing paidFlag
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i][emailIndex] && rows[i][emailIndex].toLowerCase() === email.toLowerCase()) {
+                rowIndex = i + 1; // Google Sheets is 1-indexed
+                existingRegDate = rows[i][21]; // Get the existing regDate (22nd column)
+                existingPaidFlag = rows[i][1]; // Get the existing regDate (2nd column)
+                break;
+            }
+        }
+        // Keep the current paid flag of default to N for new records
+        const paidFlag = existingPaidFlag ? existingPaidFlag : 'N';
+
+        // Set regDate and updDate based on action type
+        const currentDate = new Date().toISOString(); // Current date in ISO format
+        const regDate = existingRegDate ? existingRegDate : currentDate.substring(0, 10); // Use the existing regDate for update, otherwise use current date
+        const updTimestamp = currentDate; // Always use the current date as updDate
+
+        // Prepare the row data in the format that matches the Google Sheet
+        const rowValues = [
+            userData.email,        // Email in the 1st column
+            paidFlag,              // Paid flag in the 2nd column
+            userData.numOfFam,     // Number of families in the 3rd column
+            userData.names[0],     // Name 1 in the 4th column
+            userData.names[1],     // Name 2 in the 5th column
+            userData.names[2],     // Name 3 in the 6th column
+            userData.names[3],     // Name 4 in the 7th column
+            userData.mobile,       // Mobile in the 8th column
+            userData.tshirts[0].color,  // T-shirt 1 Color in the 9th column
+            userData.tshirts[0].size,   // T-shirt 1 Size in the 10th column
+            userData.tshirts[0].qty,    // T-shirt 1 Qty in the 11th column
+            userData.tshirts[1].color,  // T-shirt 2 Color in the 12th column
+            userData.tshirts[1].size,   // T-shirt 2 Size in the 13th column
+            userData.tshirts[1].qty,    // T-shirt 2 Qty in the 14th column
+            userData.tshirts[2].color,  // T-shirt 3 Color in the 15th column
+            userData.tshirts[2].size,   // T-shirt 3 Size in the 16th column
+            userData.tshirts[2].qty,    // T-shirt 3 Qty in the 17th column
+            userData.tshirts[3].color,  // T-shirt 4 Color in the 18th column
+            userData.tshirts[3].size,   // T-shirt 4 Size in the 19th column
+            userData.tshirts[3].qty,    // T-shirt 4 Qty in the 20th column
+            userData.totalFee,          // Total Fee in the 21st column
+            regDate,                    // Registration Date in the 22nd column (set only if new, unchanged if updating)
+            updTimestamp                // Update Date in the 23rd column (always set to current timestamp)
+        ];
+
+        const googleSheetClient = await _getGoogleSheetClient();
+
+        if (rowIndex > 0) {
+            // Email exists, update the existing row
+            await googleSheetClient.spreadsheets.values.update({
+                spreadsheetId: sheetId,
+                range: `${sheetName}!A${rowIndex}:W${rowIndex}`, // Assuming 23 columns (A to W)
+                valueInputOption: 'RAW',
+                resource: { values: [rowValues] },
+            });
+            res.status(200).json({ message: 'Record updated successfully' });
+        } else {
+            // Email doesn't exist, append a new row
+            await googleSheetClient.spreadsheets.values.append({
+                spreadsheetId: sheetId,
+                range: sheetName,
+                valueInputOption: 'RAW',
+                resource: { values: [rowValues] },
+            });
+            res.status(201).json({ message: 'Record saved successfully' });
+        }
+    } catch (error) {
+        console.error('Error during save or update:', error);
         res.status(500).json({ message: 'Internal Server Error' });
     }
 });
