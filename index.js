@@ -121,6 +121,19 @@ function mapRowToJson(openFlag, row) {
     };
 }
 
+// Function to get the local date
+function getLocalDate() {
+    const date = new Date();
+    
+    // Get components
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are zero-indexed
+    const day = String(date.getDate()).padStart(2, '0');
+
+    // Format as yyyy-mm-dd
+    return `${year}-${month}-${day}`;
+}
+
 // Request OTP Route
 app.post('/sendOTP', async (req, res) => {
     console.log("Running Request OTP Route");
@@ -188,7 +201,8 @@ app.post('/verifyOTP', async (req, res) => {
         if (!userRow) {
             console.log(`No user data found`);
             const userData = {
-                systemOpen: systemOpen
+                systemOpen: systemOpen,
+                email: email
             };
             return res.status(404).json({ message: 'Login successful. No user data found.', userData });
         }
@@ -242,7 +256,7 @@ app.post('/saveOrUpdate', async (req, res) => {
 
         // Set regDate and updDate based on action type
         const currentDate = new Date().toISOString(); // Current date in ISO format
-        const regDate = existingRegDate ? existingRegDate : currentDate.substring(0, 10); // Use the existing regDate for update, otherwise use current date
+        const regDate = existingRegDate ? existingRegDate : getLocalDate(); // Use the existing regDate for update, otherwise use current local date
         const updTimestamp = currentDate; // Always use the current date as updDate
 
         // Prepare the row data in the format that matches the Google Sheet
