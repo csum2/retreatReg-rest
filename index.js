@@ -34,12 +34,28 @@ const transporter = nodemailer.createTransport({
 });
 
 // Function to auth the Google Sheet
+/* Try out without an account json file
 async function _getGoogleSheetClient() {
     const auth = new google.auth.GoogleAuth({
       keyFile: serviceAccountKeyFile,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     const authClient = await auth.getClient();
+    return google.sheets({ version: 'v4', auth: authClient });
+}
+*/
+async function _getGoogleSheetClient() {
+    // Initialize Google Auth with credentials from environment variables
+    const auth = new GoogleAuth({
+        credentials: {
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'), // Ensure newlines are handled properly
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+    // Get an authenticated client
+    const authClient = await auth.getClient();
+    // Return the Google Sheets API client
     return google.sheets({ version: 'v4', auth: authClient });
 }
 
