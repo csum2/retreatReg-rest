@@ -10,11 +10,10 @@ const fs = require('fs');
 const app = express();
 const host = process.env.HOST || 'localhost'; // Default to 'localhost' if not set
 const port = process.env.PORT || 3000;
-// User render.com 's secret folder for the json file in production
-//const serviceAccountKeyFile = "/etc/secrets/service-account.json";
-const serviceAccountKeyFile = "./config/service-account.json";
 const sheetId = process.env.GOOGLE_SHEET_ID;
 const sheetName = process.env.GOOGLE_SHEET_NAME;
+const sheetEmailTemplate = process.env.GOOGLE_SHEET_EMAIL_TEMPLATE;
+const sheetEmailFailLog = process.env.GOOGLE_SHEET_EMAIL_FAIL_LOG;
 const sheetSystem = process.env.GOOGLE_SHEET_SYSTEM;
 
 const cors = require('cors');
@@ -34,16 +33,6 @@ const transporter = nodemailer.createTransport({
 });
 
 // Function to auth the Google Sheet
-/* Try out without an account json file
-async function _getGoogleSheetClient() {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: serviceAccountKeyFile,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-    const authClient = await auth.getClient();
-    return google.sheets({ version: 'v4', auth: authClient });
-}
-*/
 async function _getGoogleSheetClient() {
     // Initialize Google Auth with credentials from environment variables
     const auth = new GoogleAuth({
@@ -95,38 +84,97 @@ async function _findSystemRegStatus() {
     return 'N'; // Assume system not open if sheet is empty
 }
 
+// Function to send a confirmation email
+async function sendConfirmationEmail(userData) {
+    const email = userData.email;
+    const name = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
+    const totalFee = userData.totalFee;
+
+    // Fetch the email template from Google Sheets
+    const emailTemplateData = await _getSheetData(sheetEmailTemplate);
+    const emailTemplate = emailTemplateData[0][0]; // Assuming the template is in the first cell
+
+    // Replace placeholders in the template
+    const emailContent = emailTemplate.replace('{{name}}', name).replace('{{totalFee}}', totalFee);
+
+    // Send the email
+    const mailOptions = {
+        from: 'Do not reply - Automatic email of Cornerstone Fellowship <cornerstone.backend@gmail.com>',
+        to: email,
+        subject: 'Retreat Registration Confirmation',
+        text: emailContent,
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`Confirmation email sent to ${email}`);
+    } catch (error) {
+        console.error('Error sending confirmation email:', error);
+        // Log the error to the email_fail_log tab
+        await logEmailFailure(email, error.message);
+    }
+}
+
+// Function to log email failure
+async function logEmailFailure(email, errorMessage) {
+    const timestamp = new Date().toISOString(); // Current timestamp in ISO format
+    const logData = [[email, timestamp, errorMessage]]; // Prepare data for logging
+
+    const googleSheetClient = await _getGoogleSheetClient();
+    
+    try {
+        await googleSheetClient.spreadsheets.values.append({
+            spreadsheetId: sheetId,
+            range: sheetEmailFailLog, // Specify the log tab
+            valueInputOption: 'RAW',
+            resource: { values: logData },
+        });
+        console.log(`Logged email failure for ${email} at ${timestamp}`);
+    } catch (logError) {
+        console.error('Error logging email failure:', logError);
+    }
+}
+
 // Function to map a single row to a JSON structure
 function mapRowToJson(openFlag, row) {
     return {
         systemOpen: openFlag,
         email: row[0],  // Assuming email is in the 1st column
         paidFlag: row[1],  // Paid indicator in 2nd column
-        numOfFam: row[2],  // Paid indicator in 3rd column
+        numOfHH: row[2],  // Paid indicator in 3rd column
         names: [
-            row[3] || '', // Name 1 in 4th column
-            row[4] || '', // Name 2 in 5th column
-            row[5] || '', // Name 3 in 6th column
-            row[6] || '', // Name 4 in 7th column
+            {   // 1st person
+                firstName: row[3] || '', // First Name 1 in 4th column
+                lastName:  row[4] || '', // Last  Name 1 in 5th column    
+            },
+            {
+                firstName: row[5] || '', // First Name 2 in 6th column
+                lastName:  row[6] || '', // Last  Name 2 in 7th column
+            },
+            {
+                firstName: row[7] || '', // First Name 3 in 8th column
+                lastName:  row[8] || '', // Last  Name 3 in 9th column    
+            },
+            {
+                firstName: row[9] || '', // First Name 4 in 10th column
+                lastName:  row[10] || '', // Last  Name 4 in 11th column    
+            },
         ],
-        mobile: row[7], // in 8th column
+        mobile: row[11], // in 12nd column
         tshirts: [
             {   //T shirt 1
-                color: row[8], // in 9th column
-                size:  row[9], // in 10th column
-                qty:   row[10], // in 11th column
-            },
-            {   //T shirt 2
-                color: row[11], // in 12nd column
                 size:  row[12], // in 13rd column
                 qty:   row[13], // in 14th column
             },
+            {   //T shirt 2
+                size:  row[14], // in 15th column
+                qty:   row[15], // in 16th column
+            },
             {   //T shirt 3
-                color: row[14], // in 15th column
-                size:  row[15], // in 16th column
-                qty:   row[16], // in 17th column
+                size:  row[16], // in 17th column
+                qty:   row[17], // in 18th column
             },
             {   //T shirt 4
-                color: row[17], // in 18th column
                 size:  row[18], // in 19th column
                 qty:   row[19], // in 20th column
             },
@@ -263,7 +311,7 @@ app.post('/saveOrUpdate', async (req, res) => {
             if (rows[i][emailIndex] && rows[i][emailIndex].toLowerCase() === email.toLowerCase()) {
                 rowIndex = i + 1; // Google Sheets is 1-indexed
                 existingRegDate = rows[i][21]; // Get the existing regDate (22nd column)
-                existingPaidFlag = rows[i][1]; // Get the existing regDate (2nd column)
+                existingPaidFlag = rows[i][1]; // Get the existing paid flag (2nd column)
                 break;
             }
         }
@@ -279,22 +327,22 @@ app.post('/saveOrUpdate', async (req, res) => {
         const rowValues = [
             userData.email,        // Email in the 1st column
             paidFlag,              // Paid flag in the 2nd column
-            userData.numOfFam,     // Number of families in the 3rd column
-            userData.names[0],     // Name 1 in the 4th column
-            userData.names[1],     // Name 2 in the 5th column
-            userData.names[2],     // Name 3 in the 6th column
-            userData.names[3],     // Name 4 in the 7th column
-            userData.mobile,       // Mobile in the 8th column
-            userData.tshirts[0].color,  // T-shirt 1 Color in the 9th column
-            userData.tshirts[0].size,   // T-shirt 1 Size in the 10th column
-            userData.tshirts[0].qty,    // T-shirt 1 Qty in the 11th column
-            userData.tshirts[1].color,  // T-shirt 2 Color in the 12th column
-            userData.tshirts[1].size,   // T-shirt 2 Size in the 13th column
-            userData.tshirts[1].qty,    // T-shirt 2 Qty in the 14th column
-            userData.tshirts[2].color,  // T-shirt 3 Color in the 15th column
-            userData.tshirts[2].size,   // T-shirt 3 Size in the 16th column
-            userData.tshirts[2].qty,    // T-shirt 3 Qty in the 17th column
-            userData.tshirts[3].color,  // T-shirt 4 Color in the 18th column
+            userData.numOfHH,     // Number of households in the 3rd column
+            userData.names[0].firstName,    // Name 1 in the 4th column
+            userData.names[0].lastName,     // Name 1 in the 5th column
+            userData.names[1].firstName,    // Name 2 in the 6th column
+            userData.names[1].lastName,     // Name 2 in the 7th column
+            userData.names[2].firstName,    // Name 3 in the 8th column
+            userData.names[2].lastName,     // Name 3 in the 9th column
+            userData.names[3].firstName,    // Name 4 in the 10th column
+            userData.names[3].lastName,     // Name 4 in the 11th column
+            userData.mobile,            // Mobile in the 12nd column
+            userData.tshirts[0].size,   // T-shirt 1 Size in the 13th column
+            userData.tshirts[0].qty,    // T-shirt 1 Qty in the 14th column
+            userData.tshirts[1].size,   // T-shirt 2 Size in the 15th column
+            userData.tshirts[1].qty,    // T-shirt 2 Qty in the 16th column
+            userData.tshirts[2].size,   // T-shirt 3 Size in the 17th column
+            userData.tshirts[2].qty,    // T-shirt 3 Qty in the 18th column
             userData.tshirts[3].size,   // T-shirt 4 Size in the 19th column
             userData.tshirts[3].qty,    // T-shirt 4 Qty in the 20th column
             userData.totalFee,          // Total Fee in the 21st column
@@ -312,7 +360,9 @@ app.post('/saveOrUpdate', async (req, res) => {
                 valueInputOption: 'RAW',
                 resource: { values: [rowValues] },
             });
-            res.status(200).json({ message: 'Record updated successfully' });
+            // Send confirmation email
+            await sendConfirmationEmail(userData);
+            return res.status(200).json({ message: 'Record updated successfully' });
         } else {
             // Email doesn't exist, append a new row
             await googleSheetClient.spreadsheets.values.append({
@@ -321,11 +371,13 @@ app.post('/saveOrUpdate', async (req, res) => {
                 valueInputOption: 'RAW',
                 resource: { values: [rowValues] },
             });
-            res.status(201).json({ message: 'Record saved successfully' });
+            // Send confirmation email
+            await sendConfirmationEmail(userData);
+            return res.status(201).json({ message: 'Record saved successfully' });
         }
     } catch (error) {
         console.error('Error during save or update:', error);
-        res.status(500).json({ message: 'Internal Server Error' });
+        return res.status(500).json({ message: 'Internal Server Error' });
     }
 });
 
