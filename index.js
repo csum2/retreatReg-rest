@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
 const fs = require('fs');
+const QRCode = require('qrcode');
 
 const app = express();
 const host = process.env.HOST || 'localhost'; // Default to 'localhost' if not set
@@ -84,6 +85,23 @@ async function _findSystemRegStatus() {
     return 'N'; // Assume system not open if sheet is empty
 }
 
+// Encrypt the user's email using the private key
+function encryptEmail(email, privateKey) {
+    // Generate a key and IV for encryption
+    const algorithm = 'aes-256-cbc'; // You can use other algorithms as well
+    // Derive a 32-byte key using SHA-256 hash
+    const key = crypto.createHash('sha256').update(privateKey).digest();
+    const iv = crypto.randomBytes(16); // Initialization vector
+    
+    // Use createCipheriv instead of createCipher
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    
+    // Encrypt the data
+    let encrypted = cipher.update(email, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    return encrypted;
+}
+
 // Function to send a confirmation email
 async function sendConfirmationEmail(userData) {
     const email = userData.email;
@@ -95,19 +113,34 @@ async function sendConfirmationEmail(userData) {
     const emailTemplate = emailTemplateData[0][0]; // Assuming the template is in the first cell
 
     // Replace placeholders in the template
-    const emailContent = emailTemplate.replace('{{name}}', name).replace('{{totalFee}}', totalFee);
+    let emailContent = emailTemplate.replace('{{name}}', name).replace('{{totalFee}}', totalFee);
+
+    // Generate QR code from email encrypted with private key
+    const encryptedEmail = encryptEmail(userData.email, process.env.QR_PRIVATE_KEY);
+    const qrCodeDataUrl = await QRCode.toDataURL(encryptedEmail);
+    const qrCodeImageBase64 = qrCodeDataUrl.split(',')[1];  // Stripping the 'data:image/png;base64,' part
+
+    console.log('emailContent:', emailContent);
 
     // Send the email
     const mailOptions = {
         from: 'Do not reply - Automatic email of Cornerstone Fellowship <cornerstone.backend@gmail.com>',
         to: email,
         subject: 'Retreat Registration Confirmation',
-        text: emailContent,
+        html: emailContent,
+        attachments: [
+            {
+              filename: 'qrcode.png',
+              content: qrCodeImageBase64, // Get the base64 content
+              encoding: 'base64',                            // Specify the encoding type
+              cid: 'qrCodeImage'                             // Use the same CID in the <img> tag
+            }
+          ]
     };
 
     try {
         await transporter.sendMail(mailOptions);
-        console.log(`Confirmation email sent to ${email}`);
+        console.log('Confirmation email sent successfully');
     } catch (error) {
         console.error('Error sending confirmation email:', error);
         // Log the error to the email_fail_log tab
