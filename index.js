@@ -99,14 +99,85 @@ function encryptEmail(email, privateKey) {
     // Encrypt the data
     let encrypted = cipher.update(email, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return encrypted;
+
+    // Prepend IV to the encrypted data
+    const encryptedData = iv.toString('hex') + ':' + encrypted;
+    //TODO: Unit test only
+    console.log('iv:', iv);
+    console.log('encryptedData:', encryptedData);
+    return encryptedData;
+}
+
+// Decrypt the email address
+function decryptEmail(encryptedEmail, privateKey) {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.createHash('sha256').update(privateKey).digest();
+    const parts = encryptedEmail.split(':');
+    const iv = Buffer.from(parts.shift(), 'hex');   // First 32 chars for IV
+    const encryptedText = parts.join(':');          // Rest is the ciphertext
+
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
 }
 
 // Function to send a confirmation email
-async function sendConfirmationEmail(userData) {
+async function sendConfirmationEmail(userData, mode) {
     const email = userData.email;
     const name = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
     const totalFee = userData.totalFee;
+    let room1people = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
+    if (userData.names[1].firstName !== '') {
+        room1people += `, ${userData.names[1].firstName} ${userData.names[1].lastName}`;
+    }
+    let room2people = '';
+    if (userData.names[2].firstName !== '') {
+        room2people += `${userData.names[2].firstName} ${userData.names[2].lastName}`;
+    }
+    if (userData.names[3].firstName !== '') {
+        room2people += `, ${userData.names[3].firstName} ${userData.names[3].lastName}`;
+    }
+    let size1 = '';
+    let qty1 = '';
+    if (userData.tshirts[0].qty > 0) {
+        size1 = userData.tshirts[0].size;
+        if (userData.tshirts[0].qty == 1) {
+            qty1 = `${userData.tshirts[0].qty} piece`;
+        } else {
+            qty1 = `${userData.tshirts[0].qty} pieces`;
+        }
+    }
+    let size2 = '';
+    let qty2 = '';
+    if (userData.tshirts[1].qty > 0) {
+        size2 = userData.tshirts[1].size;
+        if (userData.tshirts[1].qty == 1) {
+            qty2 = `${userData.tshirts[1].qty} piece`;
+        } else {
+            qty2 = `${userData.tshirts[1].qty} pieces`;
+        }
+    }
+    let size3 = '';
+    let qty3 = '';
+    if (userData.tshirts[2].qty > 0) {
+        size3 = userData.tshirts[2].size;
+        if (userData.tshirts[2].qty == 1) {
+            qty3 = `${userData.tshirts[2].qty} piece`;
+        } else {
+            qty3 = `${userData.tshirts[2].qty} pieces`;
+        }
+    }
+    let size4 = '';
+    let qty4 = '';
+    if (userData.tshirts[3].qty > 0) {
+        size4 = userData.tshirts[3].size;
+        if (userData.tshirts[3].qty == 1) {
+            qty4 = `${userData.tshirts[3].qty} piece`;
+        } else {
+            qty4 = `${userData.tshirts[3].qty} pieces`;
+        }
+    }
 
     // Fetch the email template from Google Sheets
     const emailTemplateData = await _getSheetData(sheetEmailTemplate);
@@ -114,13 +185,51 @@ async function sendConfirmationEmail(userData) {
 
     // Replace placeholders in the template
     let emailContent = emailTemplate.replace('{{name}}', name).replace('{{totalFee}}', totalFee);
+    emailContent = emailContent.replace('{{room1people}}', room1people).replace('{{room2people}}', room2people);
+    emailContent = emailContent.replace('{{size1}}', size1).replace('{{qty1}}', qty1);
+    emailContent = emailContent.replace('{{size2}}', size2).replace('{{qty2}}', qty2);
+    emailContent = emailContent.replace('{{size3}}', size3).replace('{{qty3}}', qty3);
+    emailContent = emailContent.replace('{{size4}}', size4).replace('{{qty4}}', qty4);
+
+    // Handle hidden paragraphs
+    const hidden = 'style="display: none;"';
+    if (mode == "new") {
+        // new mode
+        emailContent = emailContent.replace('{{displayControlNew}}', '').replace('{{displayControlChange}}', hidden)
+    } else {
+        // update mode
+        emailContent = emailContent.replace('{{displayControlChange}}', '').replace('{{displayControlNew}}', hidden)
+    }
+    if (room2people === '') {
+        emailContent = emailContent.replace('{{displayControlroom2}}', hidden)
+    } else {
+        emailContent = emailContent.replace('{{displayControlroom2}}', '')
+    }
+    if (qty1 === '') {
+        emailContent = emailContent.replace('{{displayControlTshirt1}}', hidden)
+    } else {
+        emailContent = emailContent.replace('{{displayControlTshirt1}}', '')
+    }
+    if (qty2 === '') {
+        emailContent = emailContent.replace('{{displayControlTshirt2}}', hidden)
+    } else {
+        emailContent = emailContent.replace('{{displayControlTshirt2}}', '')
+    }
+    if (qty3 === '') {
+        emailContent = emailContent.replace('{{displayControlTshirt3}}', hidden)
+    } else {
+        emailContent = emailContent.replace('{{displayControlTshirt3}}', '')
+    }
+    if (qty4 === '') {
+        emailContent = emailContent.replace('{{displayControlTshirt4}}', hidden)
+    } else {
+        emailContent = emailContent.replace('{{displayControlTshirt4}}', '')
+    }
 
     // Generate QR code from email encrypted with private key
     const encryptedEmail = encryptEmail(userData.email, process.env.QR_PRIVATE_KEY);
     const qrCodeDataUrl = await QRCode.toDataURL(encryptedEmail);
     const qrCodeImageBase64 = qrCodeDataUrl.split(',')[1];  // Stripping the 'data:image/png;base64,' part
-
-    console.log('emailContent:', emailContent);
 
     // Send the email
     const mailOptions = {
@@ -253,6 +362,7 @@ app.post('/sendOTP', async (req, res) => {
 
     try {
         await transporter.sendMail(mailOptions);
+        //TODO unit test only
         console.log(`OTP sent: ${otp}`);
         res.status(200).send('OTP sent to your email');
     } catch (error) {
@@ -313,6 +423,7 @@ app.post('/verifyOTP', async (req, res) => {
             userData
         });
         const userDataJSON = JSON.stringify(userData);
+        //TODO: Unit test only
         console.log(`User data fetched: ${userDataJSON}`);
     } catch (error) {
         console.error('Error during OTP verification:', error);
@@ -369,7 +480,7 @@ app.post('/saveOrUpdate', async (req, res) => {
             userData.names[2].lastName,     // Name 3 in the 9th column
             userData.names[3].firstName,    // Name 4 in the 10th column
             userData.names[3].lastName,     // Name 4 in the 11th column
-            userData.mobile,            // Mobile in the 12nd column
+            userData.mobile,            // Mobile in the 12th column
             userData.tshirts[0].size,   // T-shirt 1 Size in the 13th column
             userData.tshirts[0].qty,    // T-shirt 1 Qty in the 14th column
             userData.tshirts[1].size,   // T-shirt 2 Size in the 15th column
@@ -394,7 +505,7 @@ app.post('/saveOrUpdate', async (req, res) => {
                 resource: { values: [rowValues] },
             });
             // Send confirmation email
-            await sendConfirmationEmail(userData);
+            await sendConfirmationEmail(userData, "upd");
             return res.status(200).json({ message: 'Record updated successfully' });
         } else {
             // Email doesn't exist, append a new row
@@ -405,12 +516,110 @@ app.post('/saveOrUpdate', async (req, res) => {
                 resource: { values: [rowValues] },
             });
             // Send confirmation email
-            await sendConfirmationEmail(userData);
+            await sendConfirmationEmail(userData, "new");
             return res.status(201).json({ message: 'Record saved successfully' });
         }
     } catch (error) {
         console.error('Error during save or update:', error);
         return res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+// Post function to handle check-in
+app.post('/checkinQRcode', async (req, res) => {
+    console.log("Running check-in QR code route");
+
+    const { staffName, password, encryptedEmail } = req.body;
+
+    // Verify the password
+    if (!password || password !== process.env.STAFF_PASSWORD) {
+        return res.status(401).json({ message: 'Incorrect staff password' });
+    }
+
+    // Decrypt the email address using the private key
+    let email;
+    try {
+        // DecryptEmail is the reverse of encryptEmail
+        email = decryptEmail(encryptedEmail, process.env.QR_PRIVATE_KEY);  
+    } catch (error) {
+        console.error('Error decrypting email:', error);
+        return res.status(400).json({ message: 'Invalid QR code' });
+    }
+
+    // TODO:  unit test only
+    console.log('Decrypted email:', email);
+    try {
+        // Find the email in the spreadsheet
+        const rows = await _getSheetData(sheetName);
+        const emailIndex = 0;               // Email in 1st column
+        const ClientFirstNameIndex = 3      // FirstName in 4th column
+        const ClientLastNameIndex = 4       // FirstName in 5th column
+        const staffNameIndex = 23;          // Staff name in 24th column
+        const checkinTimestampIndex = 24;   // Check-in timestamp in 25th column
+
+        let rowIndex = -1;
+        let existingStaffName = null;
+        let existingCheckinTimestamp = null;
+        let existingClientName = null;
+
+        for (let i = 0; i < rows.length; i++) {
+            if (rows[i][emailIndex] && rows[i][emailIndex].toLowerCase() === email.toLowerCase()) {
+                rowIndex = i + 1; // Google Sheets is 1-indexed
+                existingClientName = rows[i][ClientFirstNameIndex].toString().trim() + ' ' + rows[i][ClientLastNameIndex].toString().trim()
+                existingStaffName = rows[i][staffNameIndex]; // Staff name in 24th column
+                existingCheckinTimestamp = rows[i][checkinTimestampIndex]; // Check-in timestamp in 25th column
+                break;
+            }
+        }
+
+        // Handle email found and update check-in
+        if (rowIndex > 0) {
+            if (!existingCheckinTimestamp) {
+                // No check-in yet, update the record
+                //const currentTimestamp = new Date().toLocaleString();
+                const currentTimestamp = new Date().toLocaleString('en-CA', { timeZone: 'America/Toronto' });
+                const googleSheetClient = await _getGoogleSheetClient();
+
+                await googleSheetClient.spreadsheets.values.update({
+                    spreadsheetId: sheetId,
+                    range: `${sheetName}!X${rowIndex}:Y${rowIndex}`, // Columns X and Y are for staffName and check-in timestamp
+                    valueInputOption: 'RAW',
+                    resource: { values: [[staffName, currentTimestamp]] }, // Staff name in 24th column, timestamp in 25th column
+                });
+
+                return res.status(200).json({ message: `${existingClientName}'s Check-in is successful.` });
+            } else {
+                // Already checked in
+                return res.status(200).json({
+                    message: `${existingClientName} has already checked in at ${existingCheckinTimestamp} by ${existingStaffName}.`
+                });
+            }
+        } else {
+            return res.status(404).json({ message: `${email} has no registration record.` });
+        }
+    } catch (error) {
+        console.error('Error during check-in process:', error);
+        return res.status(500).json({ message: 'Internal Server Error' });
+    }
+});
+
+// POST function to check staff password
+app.post('/loginStaff', (req, res) => {
+    console.log("Running login staff route");
+
+    const { staffName, password } = req.body; // Destructure user ID and password from the request body
+    //TODO: unit test
+    console.log('staffName:', staffName);
+    console.log('password:', password);
+    // Check if password matches the environment variable
+    if (password === process.env.STAFF_PASSWORD) {
+        // Return success response if password is correct
+        console.log("Staff Login success");
+        return res.status(200).json({ message: 'Login success' });
+    } else {
+        // Return error response if password is incorrect
+        console.log("Staff Login failure");
+        return res.status(401).json({ message: 'Invalid login ID or password' });
     }
 });
 
