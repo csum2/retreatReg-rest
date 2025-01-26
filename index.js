@@ -127,16 +127,15 @@ async function sendConfirmationEmail(userData, mode) {
     const email = userData.email;
     const name = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
     const totalFee = userData.totalFee;
-    let room1people = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
+    let namelist = `${userData.names[0].firstName} ${userData.names[0].lastName}`;
     if (userData.names[1].firstName !== '') {
-        room1people += `, ${userData.names[1].firstName} ${userData.names[1].lastName}`;
+        namelist += `, ${userData.names[1].firstName} ${userData.names[1].lastName}`;
     }
-    let room2people = '';
     if (userData.names[2].firstName !== '') {
-        room2people += `${userData.names[2].firstName} ${userData.names[2].lastName}`;
+        namelist += `, ${userData.names[2].firstName} ${userData.names[2].lastName}`;
     }
     if (userData.names[3].firstName !== '') {
-        room2people += `, ${userData.names[3].firstName} ${userData.names[3].lastName}`;
+        namelist += `, ${userData.names[3].firstName} ${userData.names[3].lastName}`;
     }
     let size1 = '';
     let qty1 = '';
@@ -185,7 +184,7 @@ async function sendConfirmationEmail(userData, mode) {
 
     // Replace placeholders in the template
     let emailContent = emailTemplate.replace('{{name}}', name).replace('{{totalFee}}', totalFee);
-    emailContent = emailContent.replace('{{room1people}}', room1people).replace('{{room2people}}', room2people);
+    emailContent = emailContent.replace('{{namelist}}', namelist);
     emailContent = emailContent.replace('{{size1}}', size1).replace('{{qty1}}', qty1);
     emailContent = emailContent.replace('{{size2}}', size2).replace('{{qty2}}', qty2);
     emailContent = emailContent.replace('{{size3}}', size3).replace('{{qty3}}', qty3);
@@ -199,11 +198,6 @@ async function sendConfirmationEmail(userData, mode) {
     } else {
         // update mode
         emailContent = emailContent.replace('{{displayControlChange}}', '').replace('{{displayControlNew}}', hidden)
-    }
-    if (room2people === '') {
-        emailContent = emailContent.replace('{{displayControlroom2}}', hidden)
-    } else {
-        emailContent = emailContent.replace('{{displayControlroom2}}', '')
     }
     if (qty1 === '') {
         emailContent = emailContent.replace('{{displayControlTshirt1}}', hidden)
@@ -283,7 +277,7 @@ function mapRowToJson(openFlag, row) {
         systemOpen: openFlag,
         email: row[0],  // Assuming email is in the 1st column
         paidFlag: row[1],  // Paid indicator in 2nd column
-        numOfHH: row[2],  // Paid indicator in 3rd column
+        //numOfHH: row[2],  // Number of households in 3rd column
         names: [
             {   // 1st person
                 firstName: row[3] || '', // First Name 1 in 4th column
@@ -471,7 +465,8 @@ app.post('/saveOrUpdate', async (req, res) => {
         const rowValues = [
             userData.email,        // Email in the 1st column
             paidFlag,              // Paid flag in the 2nd column
-            userData.numOfHH,     // Number of households in the 3rd column
+            //userData.numOfHH,     // Number of households in the 3rd column
+            '',                             // reserve the 3rd column as Suit number for manual data input
             userData.names[0].firstName,    // Name 1 in the 4th column
             userData.names[0].lastName,     // Name 1 in the 5th column
             userData.names[1].firstName,    // Name 2 in the 6th column
